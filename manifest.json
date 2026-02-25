@@ -1,0 +1,38 @@
+{
+  "manifest_version": 3,
+  "name": "Taobao Image Downloader",
+  "version": "1.2.0",
+  "description": "Download images from Taobao by clicking on them",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "downloads",
+    "storage"
+  ],
+  "host_permissions": [
+    "*://*.taobao.com/*",
+    "*://*.tmall.com/*",
+    "*://*.tmall.hk/*",
+    "*://*.tbcdn.cn/*",
+    "*://*.alicdn.com/*",
+    "*://*.gtimg.cn/*",
+    "*://*.gtcdn.cn/*"
+  ],
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.taobao.com/*",
+        "*://*.tmall.com/*",
+        "*://*.tmall.hk/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_end"
+    }
+  ],
+  "background": {
+    "service_worker": "background.js"
+  }
+}
