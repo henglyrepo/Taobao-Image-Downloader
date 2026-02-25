@@ -47,8 +47,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   const limitFilter = document.getElementById('limitFilter');
   const limitValue = document.getElementById('limitValue');
   const limitPresetBtn = document.getElementById('limitPresetBtn');
-  const outputFormat = document.getElementById('outputFormat');
-  const saveAsCheckbox = document.getElementById('saveAs');
   const imageList = document.getElementById('imageList');
   const selectAllBtn = document.getElementById('selectAllBtn');
   const downloadBtn = document.getElementById('downloadBtn');
@@ -66,13 +64,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     return;
   }
 
-  // Just load existing captured images - don't clear on popup open
-  // Images are captured continuously by content.js via MutationObserver
-  
   // Get saved settings
-  const savedSettings = await chrome.storage.local.get(['typeFilter', 'saveAs', 'resFilter', 'limitFilter', 'outputFormat']);
+  const savedSettings = await chrome.storage.local.get(['typeFilter', 'resFilter', 'limitFilter']);
   if (savedSettings.typeFilter) typeFilter.value = savedSettings.typeFilter;
-  if (savedSettings.saveAs !== undefined) saveAsCheckbox.checked = savedSettings.saveAs;
   if (savedSettings.resFilter) {
     resFilter.value = savedSettings.resFilter;
     resValue.textContent = savedSettings.resFilter;
@@ -81,11 +75,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     limitFilter.value = savedSettings.limitFilter;
     limitValue.textContent = savedSettings.limitFilter;
   }
-  if (savedSettings.outputFormat) {
-    outputFormat.value = savedSettings.outputFormat;
-  }
 
-  // Load existing captured images (don't clear on popup open)
+  // Load existing captured images
   await loadImages();
 
   async function loadImages() {
@@ -318,9 +309,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   downloadBtn.addEventListener('click', async () => {
-    const saveAs = saveAsCheckbox.checked;
-    const targetOutput = outputFormat.value; // 'original', 'jpg', 'png', 'webp'
-    
     // Get currently filtered/displayed images (not all selected)
     const filter = typeFilter.value;
     const minRes = parseInt(resFilter.value) || 0;
@@ -338,37 +326,22 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Only download images that are currently selected AND match the filter
     const imagesToDownload = limited
       .filter(img => selectedImages.has(img.src))
-      .map((img, idx) => {
-        let filename = img.filename;
-        let type = img.type;
-        
-        // If converting to different format
-        if (targetOutput !== 'original') {
-          // Remove old extension and add new one
-          filename = filename.replace(/\.(jpg|jpeg|png|webp|gif)$/i, '') + '.' + targetOutput;
-          type = targetOutput;
-        }
-        
-        return {
-          url: img.src,
-          filename: filename,
-          type: type
-        };
-      });
+      .map((img, idx) => ({
+        url: img.src,
+        filename: img.filename,
+        type: img.type
+      }));
     
     if (imagesToDownload.length === 0) return;
     
     downloadBtn.disabled = true;
-    downloadBtn.textContent = targetOutput !== 'original' ? 'Converting...' : 'Downloading...';
+    downloadBtn.textContent = 'Downloading...';
     
     try {
       // Send downloads to background
       await chrome.runtime.sendMessage({
         action: 'downloadBatch',
-        images: imagesToDownload,
-        saveAs: saveAs,
-        convertFormat: targetOutput !== 'original',
-        targetType: targetOutput
+        images: imagesToDownload
       });
     } catch (e) {
       console.error('Download error:', e);
@@ -424,14 +397,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     await chrome.storage.local.set({ limitFilter: parseInt(limitFilter.value) });
     selectedImages.clear();
     renderImages();
-  });
-
-  saveAsCheckbox.addEventListener('change', async () => {
-    await chrome.storage.local.set({ saveAs: saveAsCheckbox.checked });
-  });
-
-  outputFormat.addEventListener('change', async () => {
-    await chrome.storage.local.set({ outputFormat: outputFormat.value });
   });
 
   debugBtn.addEventListener('click', async () => {

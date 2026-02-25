@@ -15,48 +15,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  async function convertImageToFormat(imageUrl, targetFormat) {
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      
-      img.onload = () => {
-        try {
-          const canvas = document.createElement('canvas');
-          canvas.width = img.width;
-          canvas.height = img.height;
-          const ctx = canvas.getContext('2d');
-          ctx.drawImage(img, 0, 0);
-          
-          const mimeType = `image/${targetFormat}`;
-          const dataUrl = canvas.toDataURL(mimeType, 1.0);
-          
-          // Convert data URL to blob URL for download
-          fetch(dataUrl)
-            .then(res => res.blob())
-            .then(blob => {
-              const blobUrl = URL.createObjectURL(blob);
-              resolve(blobUrl);
-            })
-            .catch(reject);
-        } catch (e) {
-          reject(e);
-        }
-      };
-      
-      img.onerror = () => reject(new Error('Failed to load image'));
-      img.src = imageUrl;
-    });
-  }
-
   if (message.action === 'downloadBatch') {
     console.log('[Image Downloader] Batch download:', message.images?.length, 'images');
-    console.log('[Image Downloader] Convert format:', message.convertFormat, 'Target:', message.targetType);
     
     const images = message.images || [];
     const saveAs = message.saveAs !== undefined ? message.saveAs : false;
-    const convertFormat = message.convertFormat || false;
-    const targetType = message.targetType || 'jpg';
     
     async function processBatch() {
       for (let i = 0; i < images.length; i++) {
@@ -64,19 +27,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         console.log('[Image Downloader] Processing:', i + 1, '/', images.length, '-', img.filename);
         
         try {
-          let downloadUrl = img.url;
-          let filename = img.filename;
-          
-          // Convert if needed
-          if (convertFormat && targetType !== 'all') {
-            console.log('[Image Downloader] Converting to', targetType);
-            downloadUrl = await convertImageToFormat(img.url, targetType);
-          }
-          
           await new Promise((resolve) => {
             chrome.downloads.download({
-              url: downloadUrl,
-              filename: filename,
+              url: img.url,
+              filename: img.filename,
               saveAs: saveAs && i === 0
             }, (downloadId) => {
               if (chrome.runtime.lastError) {
@@ -85,14 +39,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               resolve();
             });
           });
-          
-          // Clean up blob URL if created
-          if (convertFormat && targetType !== 'all') {
-            URL.revokeObjectURL(downloadUrl);
-          }
-          
         } catch (e) {
-          console.error('[Image Downloader] Conversion/download error:', e);
+          console.error('[Image Downloader] Download error:', e);
         }
         
         if (i < images.length - 1) {
