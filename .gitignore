@@ -13,3 +13,6 @@ Thumbs.db
 
 # Temp
 *.tmp
+
+# AI Agent
+AGENTS.md

@@ -44,6 +44,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   const resFilter = document.getElementById('resFilter');
   const resValue = document.getElementById('resValue');
   const resPresetBtn = document.getElementById('resPresetBtn');
+  const limitFilter = document.getElementById('limitFilter');
+  const limitValue = document.getElementById('limitValue');
+  const limitPresetBtn = document.getElementById('limitPresetBtn');
+  const outputFormat = document.getElementById('outputFormat');
   const saveAsCheckbox = document.getElementById('saveAs');
   const imageList = document.getElementById('imageList');
   const selectAllBtn = document.getElementById('selectAllBtn');
@@ -62,29 +66,27 @@ document.addEventListener('DOMContentLoaded', async () => {
     return;
   }
 
-  // Clear previous captures on popup open
-  await chrome.runtime.sendMessage({ action: 'clearImages' });
-  images = [];
-  selectedImages.clear();
-
+  // Just load existing captured images - don't clear on popup open
+  // Images are captured continuously by content.js via MutationObserver
+  
   // Get saved settings
-  const savedSettings = await chrome.storage.local.get(['typeFilter', 'saveAs', 'resFilter']);
+  const savedSettings = await chrome.storage.local.get(['typeFilter', 'saveAs', 'resFilter', 'limitFilter', 'outputFormat']);
   if (savedSettings.typeFilter) typeFilter.value = savedSettings.typeFilter;
   if (savedSettings.saveAs !== undefined) saveAsCheckbox.checked = savedSettings.saveAs;
   if (savedSettings.resFilter) {
     resFilter.value = savedSettings.resFilter;
     resValue.textContent = savedSettings.resFilter;
   }
-
-  // Request fresh scan from content script
-  try {
-    await chrome.tabs.sendMessage(tab.id, { action: 'scanDOM' });
-  } catch (e) {
-    console.log('[Popup] Could not trigger scan:', e.message);
+  if (savedSettings.limitFilter) {
+    limitFilter.value = savedSettings.limitFilter;
+    limitValue.textContent = savedSettings.limitFilter;
+  }
+  if (savedSettings.outputFormat) {
+    outputFormat.value = savedSettings.outputFormat;
   }
 
-  // Wait a bit for scan to complete
-  await new Promise(resolve => setTimeout(resolve, 1500));
+  // Load existing captured images (don't clear on popup open)
+  await loadImages();
 
   async function loadImages() {
     try {
@@ -173,6 +175,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     
     const filter = typeFilter.value;
     const minRes = parseInt(resFilter.value) || 0;
+    const limit = parseInt(limitFilter.value) || 200;
     
     let filtered = images;
     if (filter !== 'all') {
@@ -182,14 +185,17 @@ document.addEventListener('DOMContentLoaded', async () => {
       filtered = filtered.filter(img => img && (img.width >= minRes || img.height >= minRes));
     }
     
-    totalCount.textContent = `${filtered.length} images`;
+    // Apply limit (show first N images)
+    const limited = filtered.slice(0, limit);
     
-    if (filtered.length === 0) {
+    totalCount.textContent = `${filtered.length} images (showing ${limited.length})`;
+    
+    if (limited.length === 0) {
       imageList.innerHTML = '<div class="status">No images found</div>';
       return;
     }
 
-    imageList.innerHTML = filtered.map((img) => `
+    imageList.innerHTML = limited.map((img) => `
       <div class="image-item ${selectedImages.has(img.src) ? 'selected' : ''}" data-url="${escapeHtml(img.src)}">
         <div class="checkbox-wrapper">
           <input type="checkbox" ${selectedImages.has(img.src) ? 'checked' : ''}>
@@ -288,12 +294,16 @@ document.addEventListener('DOMContentLoaded', async () => {
       filtered = filtered.filter(img => img && (img.width >= minRes || img.height >= minRes));
     }
     
-    const allSelected = filtered.length > 0 && filtered.every(img => selectedImages.has(img.src));
+    // Apply limit for select all
+    const limit = parseInt(limitFilter.value) || 200;
+    const limited = filtered.slice(0, limit);
+    
+    const allSelected = limited.length > 0 && limited.every(img => selectedImages.has(img.src));
     
     if (allSelected) {
-      filtered.forEach(img => selectedImages.delete(img.src));
+      limited.forEach(img => selectedImages.delete(img.src));
     } else {
-      filtered.forEach(img => selectedImages.add(img.src));
+      limited.forEach(img => selectedImages.add(img.src));
     }
     
     document.querySelectorAll('.image-item').forEach(item => {
@@ -309,28 +319,56 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   downloadBtn.addEventListener('click', async () => {
     const saveAs = saveAsCheckbox.checked;
-    const urlsToDownload = [...selectedImages];
+    const targetOutput = outputFormat.value; // 'original', 'jpg', 'png', 'webp'
     
-    if (urlsToDownload.length === 0) return;
+    // Get currently filtered/displayed images (not all selected)
+    const filter = typeFilter.value;
+    const minRes = parseInt(resFilter.value) || 0;
+    const limit = parseInt(limitFilter.value) || 200;
+    
+    let filtered = images;
+    if (filter !== 'all') {
+      filtered = filtered.filter(img => img && img.type === filter);
+    }
+    if (minRes > 0) {
+      filtered = filtered.filter(img => img && (img.width >= minRes || img.height >= minRes));
+    }
+    const limited = filtered.slice(0, limit);
+    
+    // Only download images that are currently selected AND match the filter
+    const imagesToDownload = limited
+      .filter(img => selectedImages.has(img.src))
+      .map((img, idx) => {
+        let filename = img.filename;
+        let type = img.type;
+        
+        // If converting to different format
+        if (targetOutput !== 'original') {
+          // Remove old extension and add new one
+          filename = filename.replace(/\.(jpg|jpeg|png|webp|gif)$/i, '') + '.' + targetOutput;
+          type = targetOutput;
+        }
+        
+        return {
+          url: img.src,
+          filename: filename,
+          type: type
+        };
+      });
+    
+    if (imagesToDownload.length === 0) return;
     
     downloadBtn.disabled = true;
-    downloadBtn.textContent = 'Downloading...';
-    
-    // Build the batch of images to download
-    const imagesToDownload = urlsToDownload.map(url => {
-      const img = images.find(image => image.src === url);
-      return {
-        url: img ? img.src : url,
-        filename: img ? img.filename : 'image.jpg'
-      };
-    }).filter(img => img.url);
+    downloadBtn.textContent = targetOutput !== 'original' ? 'Converting...' : 'Downloading...';
     
     try {
-      // Send all downloads at once to background
+      // Send downloads to background
       await chrome.runtime.sendMessage({
         action: 'downloadBatch',
         images: imagesToDownload,
-        saveAs: saveAs
+        saveAs: saveAs,
+        convertFormat: targetOutput !== 'original',
+        targetType: targetOutput
       });
     } catch (e) {
       console.error('Download error:', e);
@@ -368,8 +406,32 @@ document.addEventListener('DOMContentLoaded', async () => {
     renderImages();
   });
 
+  limitFilter.addEventListener('input', async () => {
+    limitValue.textContent = limitFilter.value;
+    await chrome.storage.local.set({ limitFilter: parseInt(limitFilter.value) });
+    selectedImages.clear();
+    renderImages();
+  });
+
+  limitPresetBtn.addEventListener('click', async () => {
+    if (limitFilter.value < 200) {
+      limitFilter.value = 200;
+      limitValue.textContent = '200';
+    } else {
+      limitFilter.value = 50;
+      limitValue.textContent = '50';
+    }
+    await chrome.storage.local.set({ limitFilter: parseInt(limitFilter.value) });
+    selectedImages.clear();
+    renderImages();
+  });
+
   saveAsCheckbox.addEventListener('change', async () => {
     await chrome.storage.local.set({ saveAs: saveAsCheckbox.checked });
+  });
+
+  outputFormat.addEventListener('change', async () => {
+    await chrome.storage.local.set({ outputFormat: outputFormat.value });
   });
 
   debugBtn.addEventListener('click', async () => {
@@ -458,5 +520,4 @@ document.addEventListener('DOMContentLoaded', async () => {
     }, 4000);
   });
 
-  await loadImages();
 });

@@ -193,11 +193,27 @@
     </label>
     <label>
       Min Res:
-      <input type="range" id="resFilter" min="0" max="2000" step="100" value="0" style="width:70px;">
+      <input type="range" id="resFilter" min="0" max="2000" step="100" value="0" style="width:60px;">
       <span id="resValue">0</span>px
     </label>
     <button id="resPresetBtn" style="padding:2px 5px;font-size:10px;cursor:pointer;background:#ddd;border:1px solid #ccc;border-radius:3px;">HD</button>
     <br>
+    <label>
+      Limit:
+      <input type="range" id="limitFilter" min="1" max="200" step="1" value="200" style="width:60px;">
+      <span id="limitValue">200</span>
+    </label>
+    <button id="limitPresetBtn" style="padding:2px 5px;font-size:10px;cursor:pointer;background:#ddd;border:1px solid #ccc;border-radius:3px;">All</button>
+    <br>
+    <label>
+      Output:
+      <select id="outputFormat">
+        <option value="original">Original</option>
+        <option value="jpg">JPEG</option>
+        <option value="png">PNG</option>
+        <option value="webp">WebP</option>
+      </select>
+    </label>
     <label>
       <input type="checkbox" id="saveAs" checked>
       Ask where to save
